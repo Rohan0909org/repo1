@@ -51,7 +51,7 @@ public class XPathQuery extends HttpServlet {
             
             //running Xpath query:
             String name=xPath.compile(xPression).evaluate(xDoc);
-            out.println(name);
+            // Do not print the user's name (PII) to the response — privacy violation (CWE-359)
             if(name.isEmpty())
             {
                 response.sendRedirect(response.encodeURL("ForwardMe?location=/vulnerability/Injection/xpath_login.jsp?err=Invalid Credentials"));
