@@ -13,8 +13,12 @@ import java.io.PrintWriter;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement; 
+import java.sql.Statement;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -35,6 +39,27 @@ public class Install extends HttpServlet {
        static String siteTitle;
        static String adminuser;
        static String adminpass;
+
+       /**
+        * Allowlist of permitted JDBC driver class names.
+        * Only these well-known drivers may be loaded via Class.forName() to
+        * prevent unsafe reflection / arbitrary class loading (CWE-470).
+        */
+       private static final Set<String> ALLOWED_JDBC_DRIVERS = Collections.unmodifiableSet(
+           new HashSet<>(Arrays.asList(
+               "com.mysql.jdbc.Driver",
+               "com.mysql.cj.jdbc.Driver",
+               "org.postgresql.Driver",
+               "oracle.jdbc.OracleDriver",
+               "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+               "org.h2.Driver",
+               "org.hsqldb.jdbc.JDBCDriver",
+               "org.apache.derby.jdbc.EmbeddedDriver",
+               "org.apache.derby.jdbc.ClientDriver",
+               "com.ibm.db2.jcc.DB2Driver",
+               "net.sourceforge.jtds.jdbc.Driver"
+           ))
+       );
                
     /**
      * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
@@ -103,11 +128,16 @@ public class Install extends HttpServlet {
      protected boolean setup(String i) throws IOException
     {
         
-       if(i.equals("1"))   
+       if(i.equals("1"))
        {
- 
+
                     try
                    {
+                    // Allowlist check: reject any JDBC driver class name that is not
+                    // explicitly permitted, to prevent unsafe reflection (CWE-470).
+                    if (jdbcdriver == null || !ALLOWED_JDBC_DRIVERS.contains(jdbcdriver)) {
+                        throw new ClassNotFoundException("JDBC driver not in allowlist: " + jdbcdriver);
+                    }
                     Class.forName(jdbcdriver);
                     Connection con= DriverManager.getConnection(dburl,dbuser,dbpass);
                       if(con!=null && !con.isClosed())
