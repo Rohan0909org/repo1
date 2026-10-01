@@ -15,6 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import org.owasp.encoder.Encode;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -51,13 +52,19 @@ public class xxe extends HttpServlet {
           out.print("<br/>Result:<br/>");
           out.print("---------------------<br/>");
           for (int i = 0; i < nodes.getLength(); i++) {
-            out.print(nodes.item(i).getNodeName()+" : " + nodes.item(i).getFirstChild().getNodeValue().toString());
+            // HTML-encode XML node names and values before embedding in HTML output
+            // to prevent Reflected XSS (CWE-79). Encode.forHtml() is the OWASP-recognized
+            // sanitizer that escapes characters such as <, >, &, ", ' in HTML context.
+            String nodeName = Encode.forHtml(nodes.item(i).getNodeName());
+            String nodeValue = Encode.forHtml(nodes.item(i).getFirstChild().getNodeValue().toString());
+            out.print(nodeName + " : " + nodeValue);
             out.print("<br/>");
          }
         }
         catch(Exception ex)
         {
-            out.print(ex);
+            // Do not expose exception details to the client to prevent information disclosure
+            out.print("An error occurred while processing the request.");
         }
         finally {
             out.close();
