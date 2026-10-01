@@ -51,7 +51,9 @@ public class XPathQuery extends HttpServlet {
             
             //running Xpath query:
             String name=xPath.compile(xPression).evaluate(xDoc);
-            out.println(name);
+            // Do not output 'name' (user data derived from credentials) to the
+            // HTTP response — doing so constitutes a privacy violation (CWE-359).
+            // The result is used only for session management and redirect logic below.
             if(name.isEmpty())
             {
                 response.sendRedirect(response.encodeURL("ForwardMe?location=/vulnerability/Injection/xpath_login.jsp?err=Invalid Credentials"));
