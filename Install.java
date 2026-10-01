@@ -75,6 +75,10 @@ public class Install extends HttpServlet {
          
         String i=request.getParameter("setup");
         response.setContentType("text/html;charset=UTF-8");
+        // Enforce HTTPS-only connections via HTTP Strict Transport Security (HSTS).
+        // max-age=31536000 (1 year) instructs browsers to use HTTPS exclusively.
+        // includeSubDomains extends coverage to all sub-domains.
+        response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
          try {
             PrintWriter out = response.getWriter();
             /* TODO output your page here. You may use following sample code. */
