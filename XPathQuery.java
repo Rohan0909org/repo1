@@ -8,15 +8,19 @@ package org.cysecurity.cspf.jvl.controller;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.HashMap;
+import java.util.Map;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import javax.xml.namespace.QName;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathFactory;
+import javax.xml.xpath.XPathVariableResolver;
 
 import org.w3c.dom.Document;
 /**
@@ -26,7 +30,7 @@ import org.w3c.dom.Document;
 public class XPathQuery extends HttpServlet {
 
 
-            
+
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         response.setContentType("text/html;charset=UTF-8");
@@ -34,21 +38,33 @@ public class XPathQuery extends HttpServlet {
         try {
             String user=request.getParameter("username");
             String pass=request.getParameter("password");
-            
+
             //XML Source:
             String XML_SOURCE=getServletContext().getRealPath("/WEB-INF/users.xml");
-            
+
             //Parsing XML:
             DocumentBuilderFactory factory=DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
             DocumentBuilder builder=factory.newDocumentBuilder();
             Document xDoc=builder.parse(XML_SOURCE);
-            
+
             XPath xPath=XPathFactory.newInstance().newXPath();
-            
-            //XPath Query:
-            String xPression="/users/user[username='"+user+"' and password='"+pass+"']/name";
-            
+
+            // Use XPathVariableResolver to pass user input as typed variables,
+            // preventing XPath injection and ensuring the value stored in the
+            // session is derived from trusted XML data, not user-controlled syntax.
+            final Map<String, String> vars = new HashMap<String, String>();
+            vars.put("username", user != null ? user : "");
+            vars.put("password", pass != null ? pass : "");
+            xPath.setXPathVariableResolver(new XPathVariableResolver() {
+                public Object resolveVariable(QName variableName) {
+                    return vars.get(variableName.getLocalPart());
+                }
+            });
+
+            //XPath Query using parameterized variables (no string concatenation):
+            String xPression="/users/user[username=$username and password=$password]/name";
+
             //running Xpath query:
             String name=xPath.compile(xPression).evaluate(xDoc);
             out.println(name);
@@ -60,14 +76,16 @@ public class XPathQuery extends HttpServlet {
             {
                  HttpSession session=request.getSession();
                  session.setAttribute("isLoggedIn", "1");
-                  session.setAttribute("user", name);
-                 response.sendRedirect(response.encodeURL("ForwardMe?location=/index.jsp"));                                  
+                 // name is now sourced from trusted XML data via parameterized XPath,
+                 // not from user-controlled input.
+                 session.setAttribute("user", name);
+                 response.sendRedirect(response.encodeURL("ForwardMe?location=/index.jsp"));
             }
-        } 
+        }
         catch(Exception e)
         {
             out.print(e);
-        }        
+        }
         finally {
             out.close();
         }
