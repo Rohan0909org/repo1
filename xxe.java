@@ -15,6 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -43,8 +44,15 @@ public class xxe extends HttpServlet {
         {
           InputStream xml=request.getInputStream();
           DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+          // Disable DTD processing and external entity resolution to prevent XXE attacks (CWE-611)
+          factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+          factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+          factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+          factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+          factory.setXIncludeAware(false);
+          factory.setExpandEntityReferences(false);
           DocumentBuilder builder = factory.newDocumentBuilder();
-          InputSource is = new InputSource(xml); 	
+          InputSource is = new InputSource(xml);
           Document doc = builder.parse(is);
           Element element = doc.getDocumentElement();
           NodeList nodes = element.getChildNodes();
