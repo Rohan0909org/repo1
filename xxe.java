@@ -15,6 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import org.owasp.esapi.ESAPI;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -51,7 +52,11 @@ public class xxe extends HttpServlet {
           out.print("<br/>Result:<br/>");
           out.print("---------------------<br/>");
           for (int i = 0; i < nodes.getLength(); i++) {
-            out.print(nodes.item(i).getNodeName()+" : " + nodes.item(i).getFirstChild().getNodeValue().toString());
+            // HTML-encode XML node names and values before writing to the response
+            // to prevent Reflected Cross-Site Scripting (XSS) attacks.
+            String nodeName = ESAPI.encoder().encodeForHTML(nodes.item(i).getNodeName());
+            String nodeValue = ESAPI.encoder().encodeForHTML(nodes.item(i).getFirstChild().getNodeValue().toString());
+            out.print(nodeName + " : " + nodeValue);
             out.print("<br/>");
          }
         }
