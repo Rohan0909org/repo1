@@ -10,15 +10,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement; 
+import java.sql.Statement;
+import java.util.Base64;
 import java.util.Properties;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.cysecurity.cspf.jvl.model.HashMe;
 
 /**
@@ -35,6 +38,30 @@ public class Install extends HttpServlet {
        static String siteTitle;
        static String adminuser;
        static String adminpass;
+
+       /** Name of the session attribute used to store the per-session CSRF token. */
+       static final String CSRF_TOKEN_SESSION_ATTR = "csrfToken";
+       /** Name of the request parameter expected to carry the CSRF token. */
+       static final String CSRF_TOKEN_PARAM = "csrfToken";
+
+       private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+       /**
+        * Generates a cryptographically random CSRF token and stores it in the
+        * session.  If the session already contains a token it is reused (per-session
+        * tokens are the minimum requirement; callers may invalidate by removing the
+        * attribute when a stronger per-request token is desired).
+        */
+       static String getOrCreateCsrfToken(HttpSession session) {
+           String token = (String) session.getAttribute(CSRF_TOKEN_SESSION_ATTR);
+           if (token == null) {
+               byte[] bytes = new byte[32];
+               SECURE_RANDOM.nextBytes(bytes);
+               token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+               session.setAttribute(CSRF_TOKEN_SESSION_ATTR, token);
+           }
+           return token;
+       }
                
     /**
      * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
@@ -48,8 +75,26 @@ public class Install extends HttpServlet {
    
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
+
+        // --- CSRF protection ---
+        // Retrieve (or create) the per-session CSRF token.
+        HttpSession session = request.getSession(true);
+        String csrfSessionToken = getOrCreateCsrfToken(session);
+
+        // For GET requests we only need to expose the token in the page; no
+        // state-altering work is done yet.  For POST (and any other method that
+        // carries a request body with install parameters) we must validate the
+        // submitted token before touching the database or the config file.
+        if ("POST".equalsIgnoreCase(request.getMethod())) {
+            String csrfFormToken = request.getParameter(CSRF_TOKEN_PARAM);
+            if (csrfFormToken == null || !csrfFormToken.equals(csrfSessionToken)) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid or missing CSRF token");
+                return;
+            }
+        }
+
         String configPath=getServletContext().getRealPath("/WEB-INF/config.properties");
-        
+
         //Getting Database Configuration from User Input
         dburl = request.getParameter("dburl");
         jdbcdriver = request.getParameter("jdbcdriver");
@@ -81,7 +126,10 @@ public class Install extends HttpServlet {
             out.println("<!DOCTYPE html>");
             out.println("<html>");
             out.println("<head>");
-            out.println("<title>Servlet install</title>");            
+            out.println("<title>Servlet install</title>");
+            // Expose the CSRF token in a meta tag so client-side code can read it
+            // and embed it as a hidden field in any install form.
+            out.println("<meta name=\"csrfToken\" content=\"" + csrfSessionToken + "\">");
             out.println("</head>");
             out.println("<body>");
             if(setup(i))
@@ -97,7 +145,7 @@ public class Install extends HttpServlet {
         }
          catch(Exception e)
          {
-             
+
          }
     }
      protected boolean setup(String i) throws IOException
