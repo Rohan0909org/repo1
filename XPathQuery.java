@@ -58,10 +58,18 @@ public class XPathQuery extends HttpServlet {
             }
             else
             {
-                 HttpSession session=request.getSession();
+                 // Invalidate any existing session to prevent session fixation attacks (CWE-384).
+                 // An attacker could pre-seed a known session ID and then wait for a victim to
+                 // authenticate; invalidating the old session and issuing a fresh one breaks that chain.
+                 HttpSession existingSession = request.getSession(false);
+                 if (existingSession != null) {
+                     existingSession.invalidate();
+                 }
+                 // Create a brand-new session after successful authentication.
+                 HttpSession session = request.getSession(true);
                  session.setAttribute("isLoggedIn", "1");
-                  session.setAttribute("user", name);
-                 response.sendRedirect(response.encodeURL("ForwardMe?location=/index.jsp"));                                  
+                 session.setAttribute("user", name);
+                 response.sendRedirect(response.encodeURL("ForwardMe?location=/index.jsp"));
             }
         } 
         catch(Exception e)
