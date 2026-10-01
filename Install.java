@@ -10,15 +10,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement; 
+import java.sql.Statement;
+import java.util.Base64;
 import java.util.Properties;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.cysecurity.cspf.jvl.model.HashMe;
 
 /**
@@ -35,6 +38,9 @@ public class Install extends HttpServlet {
        static String siteTitle;
        static String adminuser;
        static String adminpass;
+
+       private static final String CSRF_TOKEN_ATTR = "csrfToken";
+       private static final SecureRandom secureRandom = new SecureRandom();
                
     /**
      * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
@@ -46,10 +52,74 @@ public class Install extends HttpServlet {
      * @throws IOException if an I/O error occurs
      */
    
+    /**
+     * Generates a cryptographically secure CSRF token and stores it in the session.
+     *
+     * @param session the current HTTP session
+     * @return the generated CSRF token string
+     */
+    protected String generateCsrfToken(HttpSession session) {
+        byte[] tokenBytes = new byte[32];
+        secureRandom.nextBytes(tokenBytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        session.setAttribute(CSRF_TOKEN_ATTR, token);
+        return token;
+    }
+
+    /**
+     * Validates the CSRF token submitted in the request against the one stored in the session.
+     * Uses a constant-time comparison to prevent timing attacks.
+     *
+     * @param request the HTTP request
+     * @return true if the token is valid, false otherwise
+     */
+    protected boolean isValidCsrfToken(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return false;
+        }
+        String sessionToken = (String) session.getAttribute(CSRF_TOKEN_ATTR);
+        String requestToken = request.getParameter(CSRF_TOKEN_ATTR);
+        if (sessionToken == null || requestToken == null) {
+            return false;
+        }
+        // Use MessageDigest.isEqual for constant-time comparison to prevent timing attacks
+        return java.security.MessageDigest.isEqual(
+                sessionToken.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                requestToken.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
+        response.setContentType("text/html;charset=UTF-8");
+
+        // For GET requests: generate a CSRF token and embed it in the form (not a state-change).
+        // For POST requests: validate the CSRF token before performing any state-altering operation.
+        if ("GET".equalsIgnoreCase(request.getMethod())) {
+            HttpSession session = request.getSession(true);
+            String csrfToken = generateCsrfToken(session);
+            try {
+                PrintWriter out = response.getWriter();
+                out.println("<!DOCTYPE html>");
+                out.println("<html><head><title>Install</title></head><body>");
+                out.println("<form method=\"POST\" action=\"\">");
+                out.println("<input type=\"hidden\" name=\"" + CSRF_TOKEN_ATTR + "\" value=\"" + csrfToken + "\"/>");
+                out.println("<!-- Add install form fields here -->");
+                out.println("</form></body></html>");
+            } catch (Exception e) {
+                // log error without exposing details
+            }
+            return;
+        }
+
+        // Validate CSRF token before processing any state-altering POST request
+        if (!isValidCsrfToken(request)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid or missing CSRF token");
+            return;
+        }
+
         String configPath=getServletContext().getRealPath("/WEB-INF/config.properties");
-        
+
         //Getting Database Configuration from User Input
         dburl = request.getParameter("dburl");
         jdbcdriver = request.getParameter("jdbcdriver");
@@ -74,7 +144,6 @@ public class Install extends HttpServlet {
          fileout.close();
          
         String i=request.getParameter("setup");
-        response.setContentType("text/html;charset=UTF-8");
          try {
             PrintWriter out = response.getWriter();
             /* TODO output your page here. You may use following sample code. */
