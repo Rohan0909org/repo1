@@ -10,15 +10,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement; 
+import java.sql.Statement;
+import java.util.Base64;
 import java.util.Properties;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.cysecurity.cspf.jvl.model.HashMe;
 
 /**
@@ -45,11 +48,47 @@ public class Install extends HttpServlet {
      * @throws ServletException if a servlet-specific error occurs
      * @throws IOException if an I/O error occurs
      */
-   
+
+    /** Session attribute key used to store the CSRF token. */
+    private static final String CSRF_TOKEN_ATTR = "csrfToken";
+
+    /**
+     * Generates a cryptographically secure random CSRF token and stores it
+     * in the user's session.
+     *
+     * @param session the current HTTP session
+     * @return the newly generated token
+     */
+    private String generateCsrfToken(HttpSession session) {
+        byte[] tokenBytes = new byte[32];
+        new SecureRandom().nextBytes(tokenBytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        session.setAttribute(CSRF_TOKEN_ATTR, token);
+        return token;
+    }
+
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
+        HttpSession session = request.getSession();
+
+        // --- CSRF protection ---
+        // On POST (state-changing request), validate the synchronizer token before
+        // reading any parameters or performing any database work.
+        if ("POST".equalsIgnoreCase(request.getMethod())) {
+            String csrfFormToken = request.getParameter("csrfToken");
+            String csrfSessionToken = (String) session.getAttribute(CSRF_TOKEN_ATTR);
+
+            if (csrfFormToken == null || csrfSessionToken == null
+                    || !csrfFormToken.equals(csrfSessionToken)) {
+                // Reject the request — token missing or does not match
+                response.sendError(HttpServletResponse.SC_FORBIDDEN,
+                        "CSRF token validation failed");
+                return;
+            }
+        }
+
         String configPath=getServletContext().getRealPath("/WEB-INF/config.properties");
-        
+
         //Getting Database Configuration from User Input
         dburl = request.getParameter("dburl");
         jdbcdriver = request.getParameter("jdbcdriver");
@@ -59,7 +98,7 @@ public class Install extends HttpServlet {
         siteTitle= request.getParameter("siteTitle");
         adminuser= request.getParameter("adminuser");
         adminpass= HashMe.hashMe(request.getParameter("adminpass"));
-        
+
         //Moifying Configuration Properties:
          Properties config=new Properties();
          config.load(new FileInputStream(configPath));
@@ -70,20 +109,25 @@ public class Install extends HttpServlet {
          config.setProperty("dbname",dbname);
          config.setProperty("siteTitle",siteTitle);
          FileOutputStream fileout = new FileOutputStream(configPath);
-         config.store(fileout, null); 
+         config.store(fileout, null);
          fileout.close();
-         
+
         String i=request.getParameter("setup");
         response.setContentType("text/html;charset=UTF-8");
+        // Generate a fresh CSRF token for the next request from this session
+        String newCsrfToken = generateCsrfToken(session);
          try {
             PrintWriter out = response.getWriter();
             /* TODO output your page here. You may use following sample code. */
             out.println("<!DOCTYPE html>");
             out.println("<html>");
             out.println("<head>");
-            out.println("<title>Servlet install</title>");            
+            out.println("<title>Servlet install</title>");
             out.println("</head>");
             out.println("<body>");
+            // Embed the CSRF token as a hidden field so the next form submission can include it
+            out.println("<form method=\"POST\" action=\"Install\">");
+            out.println("<input type=\"hidden\" name=\"csrfToken\" value=\"" + newCsrfToken + "\"/>");
             if(setup(i))
             {
                 out.print("successfully installed");
@@ -92,12 +136,13 @@ public class Install extends HttpServlet {
             {
                 out.print("Something went wrong. Unable to install");
             }
+            out.println("</form>");
             out.println("</body>");
             out.println("</html>");
         }
          catch(Exception e)
          {
-             
+
          }
     }
      protected boolean setup(String i) throws IOException
@@ -196,7 +241,28 @@ public class Install extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        processRequest(request, response);
+        // GET is used only to render the installation form — no state changes.
+        // Generate (or refresh) a CSRF token for the upcoming form submission.
+        HttpSession session = request.getSession();
+        String csrfToken = generateCsrfToken(session);
+
+        response.setContentType("text/html;charset=UTF-8");
+        try {
+            PrintWriter out = response.getWriter();
+            out.println("<!DOCTYPE html>");
+            out.println("<html>");
+            out.println("<head><title>Install</title></head>");
+            out.println("<body>");
+            out.println("<form method=\"POST\" action=\"Install\">");
+            // Embed the synchronizer token — it will be validated on POST
+            out.println("<input type=\"hidden\" name=\"csrfToken\" value=\"" + csrfToken + "\"/>");
+            // (form fields for dburl, jdbcdriver, dbuser, dbpass, dbname, siteTitle,
+            //  adminuser, adminpass, setup would be placed here in production)
+            out.println("</form>");
+            out.println("</body></html>");
+        } catch (Exception e) {
+            // intentionally empty — matches original error handling pattern
+        }
     }
 
     /**
