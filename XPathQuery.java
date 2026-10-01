@@ -34,21 +34,31 @@ public class XPathQuery extends HttpServlet {
         try {
             String user=request.getParameter("username");
             String pass=request.getParameter("password");
-            
+
+            // Validate username against a strict allowlist before using it in any
+            // query or storing it in the session. Only alphanumeric characters and
+            // a small set of safe punctuation are accepted (CWE-501 fix).
+            if (user == null || pass == null ||
+                    !user.matches("[A-Za-z0-9_@.\\-]{1,64}")) {
+                response.sendRedirect(response.encodeURL(
+                    "ForwardMe?location=/vulnerability/Injection/xpath_login.jsp?err=Invalid Credentials"));
+                return;
+            }
+
             //XML Source:
             String XML_SOURCE=getServletContext().getRealPath("/WEB-INF/users.xml");
-            
+
             //Parsing XML:
             DocumentBuilderFactory factory=DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
             DocumentBuilder builder=factory.newDocumentBuilder();
             Document xDoc=builder.parse(XML_SOURCE);
-            
+
             XPath xPath=XPathFactory.newInstance().newXPath();
-            
+
             //XPath Query:
             String xPression="/users/user[username='"+user+"' and password='"+pass+"']/name";
-            
+
             //running Xpath query:
             String name=xPath.compile(xPression).evaluate(xDoc);
             out.println(name);
@@ -60,14 +70,18 @@ public class XPathQuery extends HttpServlet {
             {
                  HttpSession session=request.getSession();
                  session.setAttribute("isLoggedIn", "1");
-                  session.setAttribute("user", name);
-                 response.sendRedirect(response.encodeURL("ForwardMe?location=/index.jsp"));                                  
+                 // Store the validated username (from the allowlist-checked input) in the
+                 // session, NOT the raw XPath result. This prevents untrusted, potentially
+                 // attacker-controlled data from being placed in the trusted session object
+                 // (CWE-501: Trust Boundary Violation).
+                 session.setAttribute("user", user);
+                 response.sendRedirect(response.encodeURL("ForwardMe?location=/index.jsp"));
             }
-        } 
+        }
         catch(Exception e)
         {
             out.print(e);
-        }        
+        }
         finally {
             out.close();
         }
