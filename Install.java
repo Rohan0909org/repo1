@@ -10,15 +10,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement; 
+import java.sql.Statement;
+import java.util.Base64;
 import java.util.Properties;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.cysecurity.cspf.jvl.model.HashMe;
 
 /**
@@ -35,7 +38,28 @@ public class Install extends HttpServlet {
        static String siteTitle;
        static String adminuser;
        static String adminpass;
-               
+
+    /** Session attribute name used to store the per-session CSRF token. */
+    static final String CSRF_TOKEN_ATTR = "csrfToken";
+
+    /**
+     * Returns the CSRF token stored in the session, creating and storing a new
+     * cryptographically random token if one does not yet exist.
+     *
+     * @param session the current HTTP session (must not be null)
+     * @return a Base64url-encoded 256-bit CSRF token
+     */
+    static String getOrCreateCsrfToken(HttpSession session) {
+        String token = (String) session.getAttribute(CSRF_TOKEN_ATTR);
+        if (token == null) {
+            byte[] bytes = new byte[32];
+            new SecureRandom().nextBytes(bytes);
+            token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+            session.setAttribute(CSRF_TOKEN_ATTR, token);
+        }
+        return token;
+    }
+
     /**
      * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
      * methods.
@@ -45,11 +69,11 @@ public class Install extends HttpServlet {
      * @throws ServletException if a servlet-specific error occurs
      * @throws IOException if an I/O error occurs
      */
-   
+
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         String configPath=getServletContext().getRealPath("/WEB-INF/config.properties");
-        
+
         //Getting Database Configuration from User Input
         dburl = request.getParameter("dburl");
         jdbcdriver = request.getParameter("jdbcdriver");
@@ -59,7 +83,7 @@ public class Install extends HttpServlet {
         siteTitle= request.getParameter("siteTitle");
         adminuser= request.getParameter("adminuser");
         adminpass= HashMe.hashMe(request.getParameter("adminpass"));
-        
+
         //Moifying Configuration Properties:
          Properties config=new Properties();
          config.load(new FileInputStream(configPath));
@@ -70,9 +94,9 @@ public class Install extends HttpServlet {
          config.setProperty("dbname",dbname);
          config.setProperty("siteTitle",siteTitle);
          FileOutputStream fileout = new FileOutputStream(configPath);
-         config.store(fileout, null); 
+         config.store(fileout, null);
          fileout.close();
-         
+
         String i=request.getParameter("setup");
         response.setContentType("text/html;charset=UTF-8");
          try {
@@ -81,7 +105,7 @@ public class Install extends HttpServlet {
             out.println("<!DOCTYPE html>");
             out.println("<html>");
             out.println("<head>");
-            out.println("<title>Servlet install</title>");            
+            out.println("<title>Servlet install</title>");
             out.println("</head>");
             out.println("<body>");
             if(setup(i))
@@ -97,15 +121,15 @@ public class Install extends HttpServlet {
         }
          catch(Exception e)
          {
-             
+
          }
     }
      protected boolean setup(String i) throws IOException
     {
-        
-       if(i.equals("1"))   
+
+       if(i.equals("1"))
        {
- 
+
                     try
                    {
                     Class.forName(jdbcdriver);
@@ -113,9 +137,9 @@ public class Install extends HttpServlet {
                       if(con!=null && !con.isClosed())
                         {
                             //Database creation
-                             Statement stmt = con.createStatement();  
+                             Statement stmt = con.createStatement();
                              stmt.executeUpdate("DROP DATABASE IF EXISTS "+dbname);
-                             
+
                              stmt.executeUpdate("CREATE DATABASE "+dbname);
                              con.close();
                             con= DriverManager.getConnection(dburl+dbname,dbuser,dbpass);
@@ -130,40 +154,40 @@ public class Install extends HttpServlet {
                                 stmt.executeUpdate("INSERT into users(username, password, email,About,avatar, privilege,secretquestion,secret) values ('NEO','trinity','neo@matrix','I am the NEO','default.jpg','user',1,'sentinel')");
                                 stmt.executeUpdate("INSERT into users(username, password, email,About,avatar, privilege,secretquestion,secret) values ('trinity','NEO','trinity@matrix','it is Trinity','default.jpg','user',1,'sentinel')");
                                  stmt.executeUpdate("INSERT into users(username, password, email,About,avatar, privilege,secretquestion,secret) values ('Anderson','java','anderson@1999','I am computer programmer','default.jpg','user',1,'C++')");
-                               
-                                  //Posts table creation                                  
+
+                                  //Posts table creation
                                   stmt.executeUpdate("create table posts(postid int NOT NULL AUTO_INCREMENT, content TEXT,title varchar(100), user varchar(30), primary key (postid))");
                                stmt.executeUpdate("INSERT into posts(content,title, user) values ('Feel free to ask any questions about Java Vulnerable Lab','First Post', 'admin')");
                                stmt.executeUpdate("INSERT into posts(content,title, user) values ('Hello Guys, this is victim','Second Post', 'victim')");
                                stmt.executeUpdate("INSERT into posts(content,title, user) values ('Hello This is attacker','Third Post', 'attacker')");
                                stmt.executeUpdate("INSERT into posts(content,title, user) values ('Trinity! Help!','Help','neo')");
-                               
-                               
+
+
                                stmt.executeUpdate("create table tdata(id int, page varchar(30))");
                                stmt.executeUpdate("Insert into tdata values(1,'ext1.html')");
                                 stmt.executeUpdate("Insert into tdata values(2,'ext2.html')");
-                                
+
                                 //Messages Table Creation
                                 stmt.executeUpdate("Create table Messages(msgid int NOT NULL AUTO_INCREMENT,name varchar(30),email varchar(60), msg varchar(500),primary key (msgid))");
                                 stmt.executeUpdate("INSERT into Messages(name,email, msg) values ('TestUser','Test@localhost', 'Hi admin, how are you')");
-                               
+
                                 //User Messages Table Creation recipient, sender, email, msg
                                 stmt.executeUpdate("Create table UserMessages(msgid int NOT NULL AUTO_INCREMENT,recipient varchar(30),sender varchar(30),subject varchar(60), msg varchar(500),primary key (msgid))");
                                  stmt.executeUpdate("INSERT into UserMessages(recipient, sender, subject, msg) values ('attacker','admin','Hi','Hi<br/> This is admin of this page. <br/> Welcome to Our Forum')");
                                  stmt.executeUpdate("INSERT into UserMessages(recipient, sender, subject, msg) values ('victim','admin','Hi','Hi<br/> This is admin of this page. <br/> Welcome to Our Forum')");
-              
-                                
+
+
                                  //Credit Card Table Creation
                                 stmt.executeUpdate("Create table cards(id int,cardno varchar(80), cvv varchar(6),expirydate varchar(15))");
                                 stmt.executeUpdate("INSERT into cards(id,cardno, cvv,expirydate) values ('1','4000123456789010','123','12/2014')");
                                 stmt.executeUpdate("INSERT into cards(id,cardno, cvv,expirydate) values ('2','4111111111111111 ','321','7/2015')");
                                 stmt.executeUpdate("INSERT into cards(id,cardno, cvv,expirydate) values ('3','5111111111111118','111','1/2017')");
-                               
+
                                 //Files List Table Creation
                                 stmt.executeUpdate("Create table FilesList(fileid int NOT NULL AUTO_INCREMENT,path text,primary key (fileid))");
                                 stmt.executeUpdate("INSERT into FilesList(path) values ('/docs/doc1.pdf')");
                                  stmt.executeUpdate("INSERT into FilesList(path) values ('/docs/exampledoc.pdf')");
-                                
+
                                 return true;
                             }
                               return false;
@@ -179,7 +203,7 @@ public class Install extends HttpServlet {
                    {
                        System.out.print("JDBC Driver Missing:<br/>"+ex);
                    }
-      
+
        }
         return false;
     }
@@ -187,6 +211,8 @@ public class Install extends HttpServlet {
     // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">
     /**
      * Handles the HTTP <code>GET</code> method.
+     * Creates a new session and generates a per-session CSRF token so the
+     * install form can embed it as a hidden field.
      *
      * @param request servlet request
      * @param response servlet response
@@ -196,11 +222,47 @@ public class Install extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        processRequest(request, response);
+        // Create session and generate CSRF token for the install form
+        HttpSession session = request.getSession(true);
+        String csrfToken = getOrCreateCsrfToken(session);
+        // Expose the token as a request attribute so JSP/template layers can
+        // embed it in the hidden form field
+        request.setAttribute(CSRF_TOKEN_ATTR, csrfToken);
+        // GET only renders the form; it does not modify state
+        response.setContentType("text/html;charset=UTF-8");
+        try {
+            PrintWriter out = response.getWriter();
+            out.println("<!DOCTYPE html>");
+            out.println("<html>");
+            out.println("<head>");
+            out.println("<title>Install</title>");
+            out.println("</head>");
+            out.println("<body>");
+            out.println("<form method=\"POST\" action=\"Install\">");
+            // Embed the CSRF token as a hidden field so it is sent with the POST
+            out.println("<input type=\"hidden\" name=\"csrfToken\" value=\"" + csrfToken + "\"/>");
+            out.println("<input type=\"text\" name=\"dburl\" placeholder=\"DB URL\"/><br/>");
+            out.println("<input type=\"text\" name=\"jdbcdriver\" placeholder=\"JDBC Driver\"/><br/>");
+            out.println("<input type=\"text\" name=\"dbuser\" placeholder=\"DB User\"/><br/>");
+            out.println("<input type=\"password\" name=\"dbpass\" placeholder=\"DB Password\"/><br/>");
+            out.println("<input type=\"text\" name=\"dbname\" placeholder=\"DB Name\"/><br/>");
+            out.println("<input type=\"text\" name=\"siteTitle\" placeholder=\"Site Title\"/><br/>");
+            out.println("<input type=\"text\" name=\"adminuser\" placeholder=\"Admin User\"/><br/>");
+            out.println("<input type=\"password\" name=\"adminpass\" placeholder=\"Admin Password\"/><br/>");
+            out.println("<input type=\"hidden\" name=\"setup\" value=\"1\"/>");
+            out.println("<input type=\"submit\" value=\"Install\"/>");
+            out.println("</form>");
+            out.println("</body>");
+            out.println("</html>");
+        } catch (Exception e) {
+            // ignore
+        }
     }
 
     /**
      * Handles the HTTP <code>POST</code> method.
+     * Validates the synchronizer CSRF token before processing the state-changing
+     * install request, preventing cross-site request forgery attacks.
      *
      * @param request servlet request
      * @param response servlet response
@@ -210,6 +272,22 @@ public class Install extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
+        // CSRF protection: validate the synchronizer token submitted with the
+        // form against the token stored in the user's server-side session.
+        // Reject the request with 403 Forbidden if the tokens do not match or
+        // if either value is absent.
+        HttpSession session = request.getSession(false);
+        String csrfSessionToken = (session != null)
+                ? (String) session.getAttribute(CSRF_TOKEN_ATTR) : null;
+        String csrfFormToken = request.getParameter("csrfToken");
+
+        if (csrfSessionToken == null || csrfFormToken == null
+                || !csrfSessionToken.equals(csrfFormToken)) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN,
+                    "Invalid or missing CSRF token");
+            return;
+        }
+
         processRequest(request, response);
     }
 
