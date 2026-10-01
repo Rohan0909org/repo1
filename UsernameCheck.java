@@ -36,6 +36,10 @@ public class UsernameCheck extends HttpServlet {
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException  {
         response.setContentType("application/json");
+        // Set HSTS header to enforce HTTPS for at least one year, covering all subdomains.
+        // This protects users from Man-in-the-Middle attacks by instructing the browser
+        // to always use HTTPS for this domain (CWE-346 / Missing HSTS Header).
+        response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
         PrintWriter out = response.getWriter();
         try {
                Connection con=new DBConnect().connect(getServletContext().getRealPath("/WEB-INF/config.properties"));
