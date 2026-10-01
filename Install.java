@@ -10,10 +10,12 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement; 
+import java.sql.Statement;
 import java.util.Properties;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -27,6 +29,9 @@ import org.cysecurity.cspf.jvl.model.HashMe;
  */
 public class Install extends HttpServlet {
 
+       // Allowlist of permitted JDBC sub-protocols to prevent Connection String Injection
+       private static final String[] ALLOWED_JDBC_SUBPROTOCOLS = { "mysql", "postgresql", "mariadb" };
+
        static String dburl;
        static String jdbcdriver;
        static String dbuser;
@@ -35,6 +40,46 @@ public class Install extends HttpServlet {
        static String siteTitle;
        static String adminuser;
        static String adminpass;
+
+    /**
+     * Validates a JDBC connection URL against an allowlist of permitted sub-protocols.
+     * Uses java.net.URI to parse the URL and extracts the JDBC sub-protocol from
+     * the scheme-specific part (e.g. "mysql" from "jdbc:mysql://host/db").
+     *
+     * @param url the candidate JDBC URL supplied by the user
+     * @return the validated URL, unchanged
+     * @throws IllegalArgumentException if the URL is null, malformed, does not use
+     *         the "jdbc" scheme, or uses a sub-protocol not in the allowlist
+     */
+    static String validateJdbcUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            throw new IllegalArgumentException("Database URL must not be empty.");
+        }
+        // A JDBC URL has the form:  jdbc:<subprotocol>://<host>/<db>
+        // Strip the leading "jdbc:" prefix so java.net.URI can parse the rest.
+        if (!url.toLowerCase().startsWith("jdbc:")) {
+            throw new IllegalArgumentException("Database URL must start with 'jdbc:'.");
+        }
+        String afterJdbc = url.substring(5); // everything after "jdbc:"
+        // The sub-protocol is the scheme of the remaining URI (e.g. "mysql")
+        URI uri;
+        try {
+            uri = new URI(afterJdbc);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Malformed database URL: " + e.getReason());
+        }
+        String subprotocol = uri.getScheme();
+        if (subprotocol == null) {
+            throw new IllegalArgumentException("Database URL is missing a sub-protocol.");
+        }
+        for (String allowed : ALLOWED_JDBC_SUBPROTOCOLS) {
+            if (allowed.equalsIgnoreCase(subprotocol)) {
+                return url; // URL passes the allowlist check
+            }
+        }
+        throw new IllegalArgumentException(
+            "Database URL sub-protocol '" + subprotocol + "' is not permitted.");
+    }
                
     /**
      * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
@@ -51,7 +96,9 @@ public class Install extends HttpServlet {
         String configPath=getServletContext().getRealPath("/WEB-INF/config.properties");
         
         //Getting Database Configuration from User Input
-        dburl = request.getParameter("dburl");
+        // Validate dburl against an allowlist of permitted JDBC sub-protocols
+        // (e.g. mysql, postgresql) using URI parsing to prevent Connection String Injection.
+        dburl = validateJdbcUrl(request.getParameter("dburl"));
         jdbcdriver = request.getParameter("jdbcdriver");
         dbuser = request.getParameter("dbuser");
         dbpass = request.getParameter("dbpass");
@@ -81,7 +128,7 @@ public class Install extends HttpServlet {
             out.println("<!DOCTYPE html>");
             out.println("<html>");
             out.println("<head>");
-            out.println("<title>Servlet install</title>");            
+            out.println("<title>Servlet install</title>");
             out.println("</head>");
             out.println("<body>");
             if(setup(i))
@@ -95,9 +142,15 @@ public class Install extends HttpServlet {
             out.println("</body>");
             out.println("</html>");
         }
+         catch(IllegalArgumentException e)
+         {
+             // Invalid database URL supplied; respond with a generic error
+             // without exposing internal details to prevent information disclosure.
+             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid configuration parameter.");
+         }
          catch(Exception e)
          {
-             
+
          }
     }
      protected boolean setup(String i) throws IOException
